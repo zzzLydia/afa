@@ -82,7 +82,7 @@ class WeTr(nn.Module):
         attn_pred = torch.sigmoid(attn_pred)[:,0,...] #B 400 400
 
         if cam_only:
-            cam_s4 = F.conv2d(_x4, self.classifier.weight).detach()
+            cam_s4 = F.conv2d(_x4, self.classifier.weight).detach() # B 20 20 20
             return cam_s4, attn_pred
 
         #_x4 = self.dropout(_x4.clone()
