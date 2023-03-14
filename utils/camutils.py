@@ -7,10 +7,14 @@ import imageio
 
 def cam_to_label(cam, cls_label, img_box=None, ignore_mid=False, cfg=None):
     b, c, h, w = cam.shape
+    # B 20 320 320
     #pseudo_label = torch.zeros((b,h,w))
     cls_label_rep = cls_label.unsqueeze(-1).unsqueeze(-1).repeat([1,1,h,w])
+    # B 20 320 320
     valid_cam = cls_label_rep * cam
+    #B 20 320 320
     cam_value, _pseudo_label = valid_cam.max(dim=1, keepdim=False)
+    # B 320 320 # B 320 320
     _pseudo_label += 1
     _pseudo_label[cam_value<=cfg.cam.bkg_score] = 0
 
@@ -112,17 +116,17 @@ def multi_scale_cam(model, inputs, scales):
         cam /= F.adaptive_max_pool2d(cam, (1, 1)) + 1e-5
     return cam
 
-def multi_scale_cam_with_aff_mat(model, inputs, scales):
+def multi_scale_cam_with_aff_mat(model, inputs, scales):# input B 3 320 320
     cam_list, aff_mat = [], []
     b, c, h, w = inputs.shape
     with torch.no_grad():
-        inputs_cat = torch.cat([inputs, inputs.flip(-1)], dim=0)
+        inputs_cat = torch.cat([inputs, inputs.flip(-1)], dim=0) # 2B 3 320 320 
 
-        _cam, _aff_mat = model(inputs_cat, cam_only=True)
+        _cam, _aff_mat = model(inputs_cat, cam_only=True) # 2B 20 20 20    2B 400 400
         aff_mat.append(_aff_mat)
 
-        _cam = F.interpolate(_cam, size=(h,w), mode='bilinear', align_corners=False)
-        _cam = torch.max(_cam[:b,...], _cam[b:,...].flip(-1))
+        _cam = F.interpolate(_cam, size=(h,w), mode='bilinear', align_corners=False)# 2B 20 320 320
+        _cam = torch.max(_cam[:b,...], _cam[b:,...].flip(-1)) # B 20 320 320
         
         cam_list = [F.relu(_cam)]
 
@@ -139,11 +143,11 @@ def multi_scale_cam_with_aff_mat(model, inputs, scales):
 
                 cam_list.append(F.relu(_cam))
 
-        cam = torch.sum(torch.stack(cam_list, dim=0), dim=0)
-        cam = cam + F.adaptive_max_pool2d(-cam, (1, 1))
-        cam /= F.adaptive_max_pool2d(cam, (1, 1)) + 1e-5
+        cam = torch.sum(torch.stack(cam_list, dim=0), dim=0) # B 20 320 320 
+        cam = cam + F.adaptive_max_pool2d(-cam, (1, 1)) # B 20 320 320 
+        cam /= F.adaptive_max_pool2d(cam, (1, 1)) + 1e-5 # B 20 320 320 
 
-    max_aff_mat = aff_mat[np.argmax(scales)]
+    max_aff_mat = aff_mat[np.argmax(scales)] # 2B 900 900
     return cam, max_aff_mat
 
 def refine_cams_with_bkg_v2(ref_mod=None, images=None, cams=None, cls_labels=None, cfg=None, img_box=None, down_scale=2):
