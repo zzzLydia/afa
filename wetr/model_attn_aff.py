@@ -62,31 +62,38 @@ class WeTr(nn.Module):
         return param_groups
 
 
-    def forward(self, x, cam_only=False, seg_detach=True,):
+    def forward(self, x, cam_only=False, seg_detach=True,):# x B 3 320 320
 
-        _x, _attns = self.encoder(x)
-        _x1, _x2, _x3, _x4 = _x
+        _x, _attns = self.encoder(x) # len(x): 4 len(attns): 8 (B 8 400 400)
+        _x1, _x2, _x3, _x4 = _x # four stage output of encoder(transformer) 
+        
+        #x_1 B 64 80 80
+        #x_2 B 128 40 40
+        #x_3 B 320 20 20
+        #x_4 B 512 20 20
 
-        seg = self.decoder(_x)
+        seg = self.decoder(_x) # seg: B 21 80 80
         #seg = self.decoder(_x4)
+        
 
-        attn_cat = torch.cat(_attns[-2:], dim=1)#.detach()
-        attn_cat = attn_cat + attn_cat.permute(0, 1, 3, 2)
-        attn_pred = self.attn_proj(attn_cat)
-        attn_pred = torch.sigmoid(attn_pred)[:,0,...]
+        attn_cat = torch.cat(_attns[-2:], dim=1)#.detach() #B 16 400 400
+        attn_cat = attn_cat + attn_cat.permute(0, 1, 3, 2) #B 16 400 400
+        attn_pred = self.attn_proj(attn_cat) #B 1 400 400
+        attn_pred = torch.sigmoid(attn_pred)[:,0,...] #B 400 400
 
         if cam_only:
             cam_s4 = F.conv2d(_x4, self.classifier.weight).detach()
             return cam_s4, attn_pred
 
         #_x4 = self.dropout(_x4.clone()
-        cls_x4 = self.pooling(_x4,(1,1))
-        cls_x4 = self.classifier(cls_x4)
-        cls_x4 = cls_x4.view(-1, self.num_classes-1)
+        cls_x4 = self.pooling(_x4,(1,1)) # B 512 1 1 
+        cls_x4 = self.classifier(cls_x4) # B 20 1 1
+        cls_x4 = cls_x4.view(-1, self.num_classes-1) # B 20 
  
         #attns = [attn[:,0,...] for attn in _attns]
         #attns.append(attn_pred)
         return cls_x4, seg, _attns, attn_pred
+    # B 20      B 21 80 80   [((B 8 400 400))]     B 400 400
     
 
 if __name__=="__main__":
