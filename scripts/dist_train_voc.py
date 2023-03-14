@@ -300,38 +300,61 @@ def train(cfg):
         cls_labels = cls_labels.to(device, non_blocking=True)
         
         cls, segs, attns, attn_pred = wetr(inputs, seg_detach=args.seg_detach)
+        
+        # B 20      B 21 80 80   [((B 8 400 400))]     B 400 400
 
-        cams, aff_mat = multi_scale_cam_with_aff_mat(wetr, inputs=inputs, scales=cfg.cam.scales)
+        cams, aff_mat = multi_scale_cam_with_aff_mat(wetr, inputs=inputs, scales=cfg.cam.scales) 
+        # B 20 320 320 # 2B 900 900
         valid_cam, pseudo_label = cam_to_label(cams.detach(), cls_label=cls_labels, img_box=img_box, ignore_mid=True, cfg=cfg)
+        #B 20 320 320 # B 320 320
 
         ######################
         valid_cam_resized = F.interpolate(valid_cam, size=(infer_size, infer_size), mode='bilinear', align_corners=False)
-
+        #B 20 30 30
+    
         aff_cam_l = propagte_aff_cam_with_bkg(valid_cam_resized, aff=aff_mat.detach().clone(), mask=attn_mask_infer, cls_labels=cls_labels, bkg_score=cfg.cam.low_thre)
+        #B 21 30 30
         aff_cam_l = F.interpolate(aff_cam_l, size=pseudo_label.shape[1:], mode='bilinear', align_corners=False)
+        #B 21 320 320
         aff_cam_h = propagte_aff_cam_with_bkg(valid_cam_resized, aff=aff_mat.detach().clone(), mask=attn_mask_infer, cls_labels=cls_labels, bkg_score=cfg.cam.high_thre)
+        #B 21 30 30
         aff_cam_h = F.interpolate(aff_cam_h, size=pseudo_label.shape[1:], mode='bilinear', align_corners=False)
-
+        #B 21 320 320
         
         bkg_cls = bkg_cls.to(cams.device)
+        #2 1
         _cls_labels = torch.cat((bkg_cls, cls_labels), dim=1)
+        #B 21
 
         refined_aff_cam_l = refine_cams_with_cls_label(par, inputs_denorm, cams=aff_cam_l, labels=_cls_labels, img_box=img_box)
+        #B 21 30 30
         refined_aff_label_l = refined_aff_cam_l.argmax(dim=1)
+        #B 21 320 320
         refined_aff_cam_h = refine_cams_with_cls_label(par, inputs_denorm, cams=aff_cam_h, labels=_cls_labels, img_box=img_box)
+        #B 21 30 30
         refined_aff_label_h = refined_aff_cam_h.argmax(dim=1)
+        #B 21 320 320
+        
+        
 
         aff_cam = aff_cam_l[:,1:]
+        #B 20 320 320
         refined_aff_cam = refined_aff_cam_l[:,1:,]
+        #B 20 320 320
         refined_aff_label = refined_aff_label_h.clone()
+        #B 320 320
         refined_aff_label[refined_aff_label_h == 0] = cfg.dataset.ignore_index
+        #B 320 320
         refined_aff_label[(refined_aff_label_h + refined_aff_label_l) == 0] = 0
+        #B 320 320
         refined_aff_label = ignore_img_box(refined_aff_label, img_box=img_box, ignore_index=cfg.dataset.ignore_index)
+        #B 320 320
         ######################
 
         refined_pseudo_label = refine_cams_with_bkg_v2(par, inputs_denorm, cams=cams, cls_labels=cls_labels, cfg=cfg, img_box=img_box)
-
+        #B 320 320
         aff_label = cams_to_affinity_label(refined_pseudo_label, mask=attn_mask, ignore_index=cfg.dataset.ignore_index)
+        #B 400 400
         aff_loss, pos_count, neg_count = get_aff_loss(attn_pred, aff_label)
 
         segs = F.interpolate(segs, size=refined_pseudo_label.shape[1:], mode='bilinear', align_corners=False)
